@@ -1,0 +1,942 @@
+---
+title: "Modeling with tidymodels in R"
+author: "aswanijehangeer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+
+
+library(tidyverse)
+library(tidymodels)
+library(knitr)
+
+# - Importing data sets ----
+
+home_sales <- read_rds("home_sales.rds")
+telecom_df <- read_rds("telecom_df.rds")
+loans_df <- read_rds("loan_df.rds")
+
+
+```
+
+## Machine Learning with tidymodels
+
+### Regression
+
+**tidymodels** is a collection of machine learning packages designed to simplify the machine learning workflow in R.
+
+In this exercise, you will assign each package within the **tidymodels ecosystem** to its corresponding process within the machine learning workflow.
+
+```{r}
+
+# - Creating training and testing data sets ----
+
+# - The rsample package is designed to create training and test datasets. 
+
+# - We will create training and test datasets from the home_sales data. This data contains information on homes sold in the Seattle, Washington area between 2015 and 2016.
+
+# - The outcome variable in this data is selling_price.
+
+# - Create a data split object 
+
+home_split <- initial_split(home_sales, 
+                            prop = 0.7,
+                            strata = selling_price)
+
+
+# training set
+
+home_training <- home_split %>% 
+  training()
+
+# test set
+
+home_test <- home_split %>% 
+  testing()
+
+
+
+# Checking number of rows in test and train sets
+
+nrow(home_training)
+nrow(home_test)
+
+
+# - Distribution of outcome variables ----
+
+# - In training data set
+
+home_training %>% 
+  summarize(min_sell_price = min(selling_price),
+            max_sell_price = max(selling_price),
+            mean_sell_price = mean(selling_price),
+            sd_sell_price = sd(selling_price))
+
+# - In test data set
+
+home_test %>% 
+  summarize(min_sell_price = min(selling_price),
+            max_sell_price = max(selling_price),
+            mean_sell_price = mean(selling_price),
+            sd_sell_price = sd(selling_price))
+
+# - Excellent work! The minimum and maximum selling prices in both data sets are the same. The mean and standard deviation are also similar. Stratifying by the outcome variable ensures the model fitting process is performed on a representative sample of the original data.
+
+
+
+
+
+# - Linear regression models with tidymodels ----
+
+# - The parsnip package provides a unified syntax for the model fitting process in R.
+
+
+# Initialize a linear regression object, linear_model
+
+linear_model <- linear_reg() %>% 
+  # Set the model engine
+  set_engine('lm') %>% 
+  # Set the model mode
+  set_mode('regression')
+
+
+# - Train our model to predict selling_price using home_age and sqft_living as predictor variables from the home_training data set.
+
+# Fit the model using the training data
+lm_fit <- linear_model %>% 
+  fit(selling_price ~ home_age + sqft_living,
+      data = home_training)
+
+# - We have defined our model with linear_reg() and trained it to predict selling_price using home_age and sqft_living. Printing a parsnip model fit object displays useful model information, such as the training time, model formula used during training, and the estimated model parameters.
+
+
+# - Exploring estimated model parameters ---
+
+tidy(lm_fit)
+
+# - The standard error, std.error, for the sqft_living predictor variable is 2.72.
+# - The estimated parameter for the home_age predictor variable is -1419.
+# - The estimated parameter for the sqft_living predictor variable is 102.
+# - The estimated intercept is 292528.2.
+
+# - The tidy() function automatically creates a tibble of estimated model parameters. Since sqft_living has a positive estimated parameter, the selling price of homes increases with the square footage. Conversely, since home_age has a negative estimated parameter, older homes tend to have lower selling prices.
+
+
+# - Predicting home selling prices ----
+
+
+# - After fitting a model using the training data, the next step is to use it to make predictions on the test data set. The test data set acts as a new source of data for the model and will allow you to evaluate how well it performs.
+
+# Predict selling price 
+
+home_predictions <- predict(lm_fit,
+                            new_data = home_test)
+
+home_predictions
+
+# - Create a tibble with the selling_price, home_age, and sqft_living columns from the test data set and the predicted home selling prices.
+
+home_test_results <- home_test %>% 
+  select(selling_price, home_age, sqft_living) %>% 
+  bind_cols(home_predictions)
+
+home_test_results
+
+# - We have trained a linear regression model and used it to predict the selling prices of homes in the test data set! The model only used two predictor variables, but the predicted values in the .pred column seem reasonable!
+
+
+
+# - Evaluating Model Performance
+
+# - Using home_test_results, calculate the RMSE and R squared metrics.
+
+# - Calculate the RMSE metric
+home_test_results %>% 
+  rmse(truth = selling_price,
+       estimate = .pred)
+
+# Calculate the R squared metric
+home_test_results %>% 
+  rsq(truth = selling_price, estimate = .pred)
+
+# - Great job! The RMSE metric indicates that the average prediction error for home selling prices is about 48,000 dollar. Not bad considering you only used home_age and sqft_living as predictor variables!
+
+
+
+# - R Squared Plot ----
+
+ggplot(home_test_results, aes(x = selling_price, y = .pred)) +
+  geom_point(alpha = 0.5) + 
+  geom_abline(color = 'blue', linetype = 2) +
+  coord_obs_pred() +
+  labs(x = 'Actual Home Selling Price', y = 'Predicted Selling Price')
+
+# - Complete model fitting process with last_fit() ----
+
+linear_fit <- linear_model %>% 
+  last_fit(selling_price ~ ., 
+           split = home_split)
+
+
+# - Collect predictions and view results
+
+predictions_df <- linear_fit %>% collect_predictions()
+predictions_df
+
+# - Make an R squared plot using predictions_df
+
+ggplot(predictions_df, aes(x = selling_price, y = .pred)) +
+  geom_point(alpha = 0.5) + 
+  geom_abline(color = 'blue', linetype = 2) +
+  coord_obs_pred() +
+  labs(x = 'Actual Home Selling Price', y = 'Predicted Selling Price')
+
+
+```
+
+### Classification Models
+
+Learn how to predict categorical outcomes by training classification models. Using the skills you've gained so far, you'll predict the **likelihood of customers canceling their service with a telecommunications company.**
+
+```{r}
+
+# - Create data split object
+
+telecom_split <- rsample::initial_split(telecom_df, 
+                                        prop = 0.75,
+                                        strata = canceled_service)
+
+# - Training set
+telecom_training <- telecom_split %>% 
+  training()
+
+# - test set
+telecom_test <- telecom_split %>% 
+  testing()
+
+# - Check the number of rows in training and test set
+
+nrow(telecom_training)
+nrow(telecom_test)
+
+# - Fitting a logistic Model ----
+
+# - Specify and logistic model
+
+logistic_model <- logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+
+# - Overview 
+
+logistic_model
+
+# - Fit to training data
+logistic_fit <- logistic_model %>% 
+  fit(canceled_service ~ avg_call_mins + avg_intl_mins + monthly_charges,
+      data = telecom_training)
+
+# - Print model fit object
+logistic_fit
+
+
+# - Predict outcome categories
+
+class_preds <- predict(logistic_fit, new_data = telecom_test,
+                       type = "class")
+
+# - Predict estimated probabilities for each outcome
+
+class_probs <- predict(logistic_fit, new_data = telecom_test,
+                       type = "prob")
+
+# - Combine test results
+
+telecom_results <- telecom_test %>% 
+  select(canceled_service) %>% 
+  bind_cols(class_preds, class_probs)
+
+
+telecom_results
+
+# -  We have created a tibble of model results using the test data set. Our results tibble contains all the necessary columns for calculating classification metrics. Next, you’ll use this tibble and the yardstick package to evaluate your model’s performance.
+
+
+# - Assessing Model Fit ----
+
+# - Calculate the confusion matrix
+
+yardstick::conf_mat(telecom_results, 
+         truth = canceled_service,
+         estimate = .pred_class)
+
+# - Calculate the accuracy of our model
+
+yardstick::accuracy(telecom_results,
+                    truth = canceled_service,
+                    estimate = .pred_class)
+
+# - Calculate the sensitivity
+
+sens(telecom_results, truth = canceled_service,
+     estimate = .pred_class)
+
+# - Calculate the specificity
+
+spec(telecom_results, truth = canceled_service,
+     estimate = .pred_class)
+
+# - The specificity of your logistic regression model is 0.926, which is more than double the sensitivity of 0.366. This indicates that your model is much better at detecting customers who will not cancel their telecommunications service versus the ones who will.
+
+# - Custom Performance Metric Sets ----
+
+telecom_metrics <- metric_set(accuracy, sens, spec)
+
+# -Calculate metrics using model results tibble
+
+telecom_metrics(telecom_results, 
+                truth = canceled_service,
+                estimate = .pred_class)
+
+
+
+# - Create a confusion matrix
+conf_mat(telecom_results,
+         truth = canceled_service,
+         estimate = .pred_class) %>% 
+  # - Pass to the summary() function
+  summary()
+
+
+# - Visualizing Model Performance ----
+
+conf_mat(telecom_results,
+         truth = canceled_service,
+         estimate = .pred_class) %>% 
+  autoplot(type = "heatmap")
+# - OR
+
+conf_mat(telecom_results,
+         truth = canceled_service,
+         estimate = .pred_class) %>% 
+  autoplot(type = "mosaic")
+
+# - Create a tibble, threshold_df, which contains the sensitivity and specificity of your classification model across the unique probability thresholds in telecom_results.
+
+threshold_df <- telecom_results %>% 
+  roc_curve(truth = canceled_service,
+            estimate = .pred_yes)
+
+threshold_df
+
+# - ROC Curve
+
+threshold_df %>% 
+  autoplot()
+
+# - Calculate the area under the ROC curve using the telecom_results tibble.
+
+telecom_results %>% 
+  roc_auc(truth = canceled_service,
+          estimate = .pred_yes)
+
+# - The area under the ROC curve is 0.77. This indicates that your model gets a C in terms of overall performance. This is mainly due to the low sensitivity of the model.
+
+
+
+# - Automating the Modeling Workflow ----
+
+# - The last_fit() function is designed to streamline the modeling workflow in tidymodels. Instead of training your model on the training data and building a results tibble using the test data, last_fit() accomplishes this with one function.
+
+
+# - Train model with last_fit()
+
+telecom_last_fit <- logistic_model %>% 
+  last_fit(canceled_service ~ avg_call_mins + avg_intl_mins + monthly_charges,
+           split = telecom_split)
+
+# - Collecting performance metrics
+
+telecom_last_fit %>% 
+  collect_metrics()
+
+# - Collecting Predictions
+
+last_fit_results <- telecom_last_fit %>% 
+  collect_predictions()
+
+last_fit_results
+
+# - Custom metrics function
+
+last_fit_metrics <- metric_set(accuracy, sens,
+                               spec, roc_auc)
+
+# - Calculate Metrics
+
+last_fit_metrics(last_fit_results,
+                 truth = canceled_service,
+                 estimate = .pred_class, .pred_yes)
+
+
+# - We were able to train and evaluate your logistic regression model in half the time!
+
+
+# - Complete modeling workflow
+
+# - Train a logistic regression model
+
+logistic_fit <- logistic_model %>% 
+  last_fit(canceled_service ~ 
+             avg_call_mins + avg_intl_mins + monthly_charges + months_with_company, 
+           split = telecom_split)
+
+# - Collect metrics
+logistic_fit %>% 
+  collect_metrics()
+
+# - Collect model predictions
+
+logistic_fit %>% 
+  collect_predictions() %>% 
+  # - Plot ROC curve
+  roc_curve(truth = canceled_service, .pred_yes) %>% 
+  autoplot()
+
+
+```
+
+### Feature Engineering
+
+Find out how to bake feature engineering pipelines with the **recipes** package. You'll prepare numeric and categorical data to help machine learning algorithms **optimize** your predictions.
+
+```{r}
+
+# - Exploring recipe objects
+
+telecom_rec <- recipe(canceled_service ~ .,
+                      data = telecom_df) %>% 
+  step_log(avg_call_mins, log = 10)
+
+
+
+# - Specify feature engineering recipe
+telecom_log_rec <- recipe(canceled_service ~ ., 
+                          data = telecom_training) %>%
+  # - Add log transformation step
+  step_log(avg_call_mins, avg_intl_mins, base = 10)
+
+# - Print recipe object
+telecom_log_rec
+
+
+# - View variable roles and data types
+telecom_log_rec %>%
+  summary()
+
+# - Train your telecom_log_rec object using the telecom_training data set.
+
+telecom_log_rec_prep <- telecom_log_rec %>% 
+  prep(training = telecom_training)
+
+telecom_log_rec_prep
+
+# - Apply to training data
+
+telecom_log_rec_prep %>% 
+  bake(new_data = NULL)
+
+# - Apply to the test data
+
+telecom_log_rec_prep %>% 
+  bake(new_data = telecom_test)
+
+# - We successfully trained your recipe to be able to transform new data sources and applied it to the training and test data sets. Notice that the avg_call_mins and avg_intl_mins variables have been log transformed in the test data set!
+
+
+# - Numeric Predictors 
+
+# - When two variables are highly correlated, their values change linearly with each other and hence provide the same information to your machine learning algorithms. This phenomenon is know as multicollinearity.
+
+# - Create a correlation matrix of the numeric columns of telecom_training.
+
+telecom_training %>% 
+  select_if(is.numeric) %>% 
+  cor()
+
+
+# - Plot correlated predictors
+
+ggplot(telecom_training, aes(x = avg_data_gb, y = monthly_charges)) + 
+  geom_point()  + 
+  labs(title = 'Monthly Charges vs. Average Data Usage',
+       y = 'Monthly Charges ($)', x = 'Average Data Usage (GB)') 
+
+
+# - Removing correlated predictors with recipes.
+
+# - Addin a preprocessing step that removes highly correlated predictor variables using the all_numeric() selector function and a correlation threshold of 0.8.
+
+
+# - Specify a recipe object
+
+telecom_cor_rec <- recipe(canceled_service ~ .,
+                          data = telecom_training) %>% 
+  # - Remove correlated variables
+  step_corr(all_numeric(), threshold = 0.8)
+
+# - Train the recipe on telecom training data set
+
+telecom_cor_rec_prep <- telecom_cor_rec %>% 
+  prep(data = telecom_training)
+
+# - Applying training and test data
+
+telecom_cor_rec_prep %>% 
+  bake(new_data = NULL)
+
+telecom_cor_rec_prep %>% 
+  bake(new_data = telecom_test)
+
+
+# - We have trained your recipe to remove all correlated predictors that exceed the 0.8 correlation threshold. Notice that your recipe found the high correlation between monthly_charges and avg_data_gb in the training data and when applied to the telecom_test data, it removed the monthly_charges column.
+
+
+
+# - Multiple Feature Engineering Steps ----
+
+telecom_norm_rec <- recipe(canceled_service ~ ., 
+                           data = telecom_training) %>% 
+  step_corr(all_numeric(), threshold = 0.8) %>% 
+  step_normalize(all_numeric())
+
+
+# - Train the recipe
+
+telecom_norm_rec_prep <- telecom_norm_rec %>% 
+  prep(training = telecom_training)
+
+# Test the recipe on test data set
+
+telecom_norm_rec_prep %>% 
+  bake(new_data = telecom_test)
+
+
+# - Nominal Predictors, Applying step_dummy() to the predictors.
+
+
+# - Specify the telecom_recipe_1 object to normalize all numeric predictors and then create dummy variables for all nominal predictors in the training data, telecom_training.
+
+telecom_recipe1 <- recipe(canceled_service ~ avg_data_gb + contract, 
+                          data = telecom_training) %>% 
+  step_normalize(all_numeric()) %>% 
+  step_dummy(all_nominal(), -all_outcomes())
+
+# - Train the recipe and apply on test data
+
+telecom_recipe1 %>% 
+  prep(training = telecom_training) %>% 
+  bake(new_data = telecom_test)
+
+
+# - Now specify telecom_recipe_2 to create dummy variables for all nominal predictors and then normalize all numeric predictors in the training data, telecom_training.
+
+telecom_recipe2 <- recipe(canceled_service ~ avg_data_gb + contract, 
+                          data = telecom_training) %>% 
+  step_dummy(all_nominal(), -all_outcomes()) %>% 
+  step_normalize(all_nominal(), -all_outcomes())
+
+# - Train the recipe and apply on the test data
+
+telecom_recipe2 %>% 
+  prep(training = telecom_training) %>% 
+  bake(new_data = telecom_test)
+
+
+# - Complete Feature Engineering Pipeline ----
+
+# - Create a recipe that predicts canceled_service using the training data
+telecom_recipe_final <- recipe(canceled_service ~ ., data = telecom_training) %>% 
+  # - Remove correlated predictors
+  step_corr(all_numeric(), threshold = 0.8) %>% 
+  # - Normalize numeric predictors
+  step_normalize(all_numeric()) %>% 
+  # - Create dummy variables
+  step_dummy(all_nominal(), -all_outcomes())
+
+# - Train recipe
+telecom_recipe_prep <- telecom_recipe_final %>% 
+  prep(training = telecom_training)
+
+# - Transform training data
+telecom_training_prep <- telecom_recipe_prep %>% 
+  bake(new_data = NULL)
+
+# - Transform test data
+telecom_test_prep <- telecom_recipe_prep %>% 
+  bake(new_data = telecom_test)
+
+telecom_test_prep
+
+
+# - Train your logistic_model object to predict canceled_service using all available predictor variables in the telecom_training_prep data.
+
+# - Train logistic model
+
+logistic_fit <- logistic_model %>% 
+  fit(canceled_service ~ ., data = telecom_training_prep)
+
+# - Obtain class predictions
+class_preds <- predict(logistic_fit, new_data = telecom_test_prep,
+                       type = 'class')
+
+# - Obtain estimated probabilities
+prob_preds <- predict(logistic_fit, new_data = telecom_test_prep, 
+                      type = 'prob')
+
+# - Combine test set results
+
+telecom_results <- telecom_test_prep %>% 
+  select(canceled_service) %>% 
+  bind_cols(class_preds, prob_preds)
+
+telecom_results
+
+
+# - Performance Metrics
+
+# - Create a confusion matrix
+telecom_results %>% 
+  conf_mat(truth = canceled_service, estimate = .pred_class)
+
+
+# - Calculate sensitivity
+telecom_results %>% 
+  sens(truth = canceled_service, estimate = .pred_class)
+
+# - Calculate specificity
+telecom_results %>% 
+  spec(truth = canceled_service, estimate = .pred_class)
+
+# - Plot ROC curve
+telecom_results %>% 
+  roc_curve(truth = canceled_service, .pred_yes) %>% 
+  autoplot()
+
+```
+
+### Workflows and Hyperparameter Tuning.
+
+Now it's time to streamline the modeling process using workflows and fine-tune models with **cross-validation** and **hyper parameter tuning**. You'll learn how to tune a **decision tree classification model** to predict whether a **bank's customers are likely to default on their loan.**
+
+#### Machine Learning Workflows
+
+The **workflows** package provides the ability to bundle **parsnip** models and **recipe** objects into a single modeling workflow object. This makes managing a machine learning project much easier and removes the need to keep track of multiple modeling objects.
+
+We will working with the loans_df data set, which contains financial information on consumer loans at a bank. The outcome variable in this data is **loan_default**.
+
+We will create a decision tree model object and specify a feature engineering pipeline for the loan data.
+
+```{r}
+
+# - Create the data split
+
+loans_split <- initial_split(loans_df,
+                             strata = loan_default)
+
+# - Training data
+loans_training <- loans_split %>% 
+  training()
+
+# - Test data
+loans_test <- loans_split %>% 
+  testing()
+
+
+# - Checking correlation between numeric variables
+
+loans_training %>% 
+  select_if(is.numeric) %>% 
+  cor()
+# - we have created your training and test data sets and discovered that loan_amount and installment are highly correlated predictor variables. To remove one of these predictors, we will have to incorporate step_corr() into your feature engineering pipeline for this data.
+
+
+# - Specifying the recipe and model
+
+dt_model <- decision_tree() %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+dt_model
+
+# - Create a recipe object with the loans_training data. Use all available predictor variables to predict the outcome, loan_default.
+# - Add a correlation filter to remove multicollinearity at a 0.85 threshold, normalize all numeric predictors, and create dummy variables for all nominal predictors.
+
+
+loans_recipe <- recipe(loan_default ~ .,
+                       data = loans_training) %>% 
+  step_corr(all_numeric(), threshold = 0.85) %>% 
+  step_normalize(all_numeric()) %>% 
+  step_dummy(all_nominal(), - all_outcomes())
+
+loans_recipe
+
+# - Create a workflow object, loans_dt_wkfl, that combines your decision tree model and feature engineering recipe.
+
+loans_dt_wkfl <- workflow() %>% 
+  add_model(dt_model) %>% 
+  add_recipe(loans_recipe)
+
+loans_dt_wkfl
+
+# - Train loans_dt_wkfl on last_fit() function
+
+loans_dt_wkfl_fit <- loans_dt_wkfl %>% 
+  last_fit(split = loans_split)
+
+# - Performance metrics
+
+loans_dt_wkfl_fit %>% 
+  collect_metrics()
+
+# - We have trained a workflow with last_fit() that created training and test data sets, trained and applied your recipe, fit your decision tree model to the training data and calculated performance metrics on the test data all with just a few lines of code! The model performed really well, with an area under the ROC curve of 0.870.
+
+```
+
+#### Estimating performance with cross validation
+
+Cross validation is a method that uses training data to provide multiple estimates of model performance. When trying different model types on your data, it is important to study their performance profile to help decide which model type performs consistently well.
+
+```{r}
+# - Create cross validation folds
+
+set.seed(123)
+
+# - creating 10 folds
+loans_folds <- vfold_cv(loans_training,
+                        v = 10,
+                        strata = loan_default)
+
+loans_folds
+
+# - creating custom metric function
+
+loans_metric <- metric_set(roc_auc, sens, spec)
+
+# - Using decision tree workflow to perform cross validation using folds and custom metric function.
+
+# - Fit resamples
+
+loans_dt_rs <- loans_dt_wkfl %>% 
+  fit_resamples(resamples = loans_folds,
+                metrics = loans_metric)
+
+# - Performance metrics
+
+loans_dt_rs %>% 
+  collect_metrics()
+
+# - We have used cross validation to evaluate the performance of your decision tree workflow. Across the 10 cross validation folds, the average area under the ROC curve was 0.817. The average sensitivity and specificity were 0.828 and 0.772, respectively.
+
+
+
+
+```
+
+#### Cross validation with logistic regression
+
+```{r}
+# - Logistics Model
+logistic_model <- logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+
+# - Create Workflow
+
+loans_logistic_wkfl <- workflow() %>% 
+  add_model(logistic_model) %>% 
+  add_recipe(loans_recipe)
+
+# - Fit resamples
+
+loans_logistic_rs <- loans_logistic_wkfl %>% 
+  fit_resamples(resamples = loans_folds,
+                metrics = loans_metric)
+
+# - View performance metrics
+
+loans_logistic_rs %>% 
+  collect_metrics()
+
+# - Great Job!
+
+```
+
+#### Comparing model performance profiles
+
+The benefit of the **collect_metrics()** function is that it returns a tibble of cross validation results. This makes it easy to calculate custom summary statistics with the **dplyr** package.
+
+```{r}
+# - Detailed cross validation results - Decision Tree
+
+dt_rs_results <- loans_dt_rs %>% 
+  collect_metrics(summarize = FALSE)
+
+# - Explore model performance for decision tree
+dt_rs_results %>% 
+  group_by(.metric) %>% 
+  summarize(min = min(.estimate),
+            median = median(.estimate),
+            max = max(.estimate))
+
+
+# - Detailed cross validation results - Logistic Model
+
+logistic_rs_results <- loans_logistic_rs %>% 
+  collect_metrics(summarize = FALSE)
+
+# - Explore model performance for logistic regression
+logistic_rs_results %>% 
+  group_by(.metric) %>% 
+  summarize(min = min(.estimate),
+            median = median(.estimate),
+            max = max(.estimate))
+
+# - Great Job!
+
+```
+
+#### Hyperparameter Tuning
+
+Hyper parameter tuning is a method for fine-tuning the performance of your models. In most cases, the default hyper parameters values of parsnip model objects will not be the optimal values for maximizing model performance.
+
+```{r}
+
+# - a parsnip decision tree model and set all three of its hyperparameters for tuning.
+# - Use the rpart engine.
+
+# - Set tuning hyperparameters
+
+dt_tune_model <- decision_tree(cost_complexity = tune(),
+                               tree_depth = tune(),
+                               min_n = tune()) %>% 
+  # - Specify engine
+  set_engine('rpart') %>% 
+  # - Specify mode
+  set_mode('classification')
+
+dt_tune_model
+
+# - Create a tuning workflow
+loans_tune_wkfl <- loans_dt_wkfl %>% 
+  # - Replace model
+  update_model(dt_tune_model)
+
+loans_tune_wkfl
+
+```
+
+#### Random Grid Search
+
+The most common method of hyperparameter tuning is grid search. This method creates a tuning grid with unique combinations of hyperparameter values and uses cross validation to evaluate their performance. **The goal of hyperparameter tuning is to find the optimal combination of values for maximizing model performance.**
+
+```{r}
+# - Hyperparameter tuning with grid search
+
+set.seed(456)
+
+dt_grid <- grid_random(parameters(dt_tune_model),
+                       size = 5)
+
+dt_grid
+
+# - Hyperparameter tuning
+
+dt_tuning <- loans_tune_wkfl %>% 
+  tune_grid(resamples = loans_folds,
+            grid = dt_grid,
+            metrics = loans_metric)
+
+
+# - View Results
+
+dt_tuning %>% 
+  collect_metrics()
+
+# - Collect detailed tuning results
+dt_tuning_results <- dt_tuning %>% 
+  collect_metrics(summarize = FALSE)
+
+dt_tuning_results
+
+
+# - Explore detailed ROC AUC results for each fold
+
+dt_tuning_results %>% 
+  filter(.metric == 'roc_auc') %>% 
+  group_by(id) %>% 
+  summarize(min_roc_auc = min(.estimate),
+            median_roc_auc = median(.estimate),
+            max_roc_auc = max(.estimate))
+
+```
+
+#### Selecting the best model
+
+To incorporate hyperparameter tuning into your modeling process, an optimal hyperparameter combination must be selected based on the average value of a performance metric. Then you will be able to finalize your tuning workflow and fit your final model.
+
+```{r}
+
+# - Display the 5 best performing hyperparameter combinations from your tuning results based on the area under the ROC curve.
+
+dt_tuning %>% 
+  show_best(metric = "roc_auc", n = 5)
+
+# - Choosing the best model
+
+best_dt_model <- dt_tuning %>% 
+  select_best(metric = "roc_auc")
+
+best_dt_model
+
+# - Finalize the workflow
+
+final_loans_wkfl <- loans_tune_wkfl %>% 
+  finalize_workflow(best_dt_model)
+
+final_loans_wkfl
+
+# - Our workflow is now ready for model fitting and prediction on new data sources!
+
+```
+
+#### Training final workflow
+
+```{r}
+# - Train finalized decision tree workflow
+
+loans_final_fit <- final_loans_wkfl %>% 
+  last_fit(split = loans_split)
+
+# - View performance metrics
+
+loans_final_fit %>% 
+  collect_metrics()
+
+# - Create an ROC curve
+loans_final_fit %>% 
+  # - Collect predictions
+  collect_predictions() %>%
+  # - Calculate ROC curve metrics
+  roc_curve(truth = loan_default, .pred_yes) %>%
+  # - Plot the ROC curve
+  autoplot()
+
+# -  We were able to train your finalized workflow with last_fit() and generate predictions on the test data.
+
+```

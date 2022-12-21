@@ -98,7 +98,7 @@ PassengerId <- as.data.frame(PassengerId)
 
 PassengerId$Survived <- Survived
 
-write.csv(PassengerId, file = "Titanic_ML_submission")
+write.csv(PassengerId, file = "Titanic_ML_submission.csv")
 
 
 
